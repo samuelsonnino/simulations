@@ -1,0 +1,103 @@
+import numpy as np
+import matplotlib.pyplot as plt
+import streamlit as st
+import matplotlib.patches as patches
+
+st.set_page_config(page_title="Vehicle Dynamics Simulator", layout="wide")
+st.title("2-DOF Vehicle Dynamics Simulator - Steering Step Input")
+
+# Sidebar inputs
+st.sidebar.header("Simulation Parameters")
+v_kmh = st.sidebar.number_input("Vehicle Speed [km/h]", value=50.0)
+delta_deg = st.sidebar.number_input("Steering Step Angle [deg]", value=5.0)
+dt = st.sidebar.number_input("Time Step dt [s]", value=0.01)
+t_end = st.sidebar.number_input("Simulation Duration [s]", value=10.0)
+
+# Vehicle parameters
+m = 1500      # mass [kg]
+Iz = 3000     # yaw moment of inertia [kg*m^2]
+lf = 1.2      # distance from CG to front axle [m]
+lr = 1.6      # distance from CG to rear axle [m]
+Cf = 80000    # cornering stiffness front [N/rad]
+Cr = 80000    # cornering stiffness rear [N/rad]
+L = lf + lr   # wheelbase
+
+# Derived values
+v = v_kmh / 3.6          # convert to m/s
+delta = np.deg2rad(delta_deg)  # steering angle in rad
+
+# Time vector
+t = np.arange(0, t_end, dt)
+n = len(t)
+
+# Inputs
+delta_t = np.zeros_like(t)
+delta_t[t >= 1.0] = delta  # Step input at t = 1s
+
+# State vectors
+y = np.zeros(n)         # lateral position
+x = np.zeros(n)         # longitudinal position
+beta = np.zeros(n)      # side slip angle [rad]
+r = np.zeros(n)         # yaw rate [rad/s]
+psi = np.zeros(n)       # yaw angle [rad]
+
+# Initial conditions
+beta[0] = 0
+r[0] = 0
+psi[0] = 0
+
+# Simulation loop
+for i in range(1, n):
+    dbeta = ((-2 * (Cf * lf - Cr * lr) / (m * v**2) - 2 * (Cf + Cr) / (m * v)) * beta[i-1] -
+             (2 * (Cf * lf**2 + Cr * lr**2) / (Iz * v**2) + 2 * (Cf * lf - Cr * lr) / (Iz * v)) * r[i-1] +
+             2 * Cf * delta_t[i] / (m * v)) * dt
+
+    dr = ((-2 * (Cf * lf - Cr * lr) / (Iz * v)) * beta[i-1] -
+          2 * (Cf * lf**2 + Cr * lr**2) / (Iz * v) * r[i-1] +
+          2 * Cf * lf * delta_t[i] / Iz) * dt
+
+    beta[i] = beta[i-1] + dbeta
+    r[i] = r[i-1] + dr
+    psi[i] = psi[i-1] + r[i] * dt
+
+    dx = v * np.cos(psi[i] + beta[i]) * dt
+    dy = v * np.sin(psi[i] + beta[i]) * dt
+    x[i] = x[i-1] + dx
+    y[i] = y[i-1] + dy
+
+# Convert to degrees
+beta_deg = np.rad2deg(beta)
+
+# Plotting
+fig1, ax1 = plt.subplots()
+ax1.plot(t, np.rad2deg(delta_t), label="Steering Input [deg]")
+ax1.set_title("Steering Input")
+ax1.set_xlabel("Time [s]")
+ax1.set_ylabel("Steering Angle [deg]")
+ax1.grid(True)
+st.pyplot(fig1)
+
+fig2, ax2 = plt.subplots()
+ax2.plot(t, np.rad2deg(r), label="Yaw Rate [deg/s]")
+ax2.set_title("Yaw Rate")
+ax2.set_xlabel("Time [s]")
+ax2.set_ylabel("Yaw Rate [deg/s]")
+ax2.grid(True)
+st.pyplot(fig2)
+
+fig3, ax3 = plt.subplots()
+ax3.plot(t, beta_deg, label="Side Slip Angle [deg]")
+ax3.set_title("Side Slip Angle")
+ax3.set_xlabel("Time [s]")
+ax3.set_ylabel("Beta [deg]")
+ax3.grid(True)
+st.pyplot(fig3)
+
+fig4, ax4 = plt.subplots()
+ax4.plot(x, y, label="Trajectory")
+ax4.set_title("Vehicle Trajectory")
+ax4.set_xlabel("X [m]")
+ax4.set_ylabel("Y [m]")
+ax4.axis('equal')
+ax4.grid(True)
+st.pyplot(fig4)
