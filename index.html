@@ -1,103 +1,147 @@
-import numpy as np
-import matplotlib.pyplot as plt
-import streamlit as st
-import matplotlib.patches as patches
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>2DOF Vehicle Dynamics Simulation</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body { font-family: sans-serif; padding: 20px; }
+    canvas { margin: 30px 0; }
+  </style>
+</head>
+<body>
+  <h1>2DOF Vehicle Dynamics Simulation</h1>
+  <p>Simulazione con passo di sterzo e velocità personalizzati.</p>
 
-st.set_page_config(page_title="Vehicle Dynamics Simulator", layout="wide")
-st.title("2-DOF Vehicle Dynamics Simulator - Steering Step Input")
+  <div>
+    <label for="duration">Durata simulazione (secondi):</label>
+    <input type="number" id="duration" value="5" min="1" step="0.1" />
+  </div>
 
-# Sidebar inputs
-st.sidebar.header("Simulation Parameters")
-v_kmh = st.sidebar.number_input("Vehicle Speed [km/h]", value=50.0)
-delta_deg = st.sidebar.number_input("Steering Step Angle [deg]", value=5.0)
-dt = st.sidebar.number_input("Time Step dt [s]", value=0.01)
-t_end = st.sidebar.number_input("Simulation Duration [s]", value=10.0)
+  <div>
+    <label for="dt">Passo di simulazione (dt) [s]:</label>
+    <input type="number" id="dt" value="0.01" min="0.001" step="0.001" />
+  </div>
 
-# Vehicle parameters
-m = 1500      # mass [kg]
-Iz = 3000     # yaw moment of inertia [kg*m^2]
-lf = 1.2      # distance from CG to front axle [m]
-lr = 1.6      # distance from CG to rear axle [m]
-Cf = 80000    # cornering stiffness front [N/rad]
-Cr = 80000    # cornering stiffness rear [N/rad]
-L = lf + lr   # wheelbase
+  <div>
+    <label for="speed">Velocità veicolo (km/h):</label>
+    <input type="number" id="speed" value="50" min="1" step="1" />
+  </div>
 
-# Derived values
-v = v_kmh / 3.6          # convert to m/s
-delta = np.deg2rad(delta_deg)  # steering angle in rad
+  <div>
+    <label for="steering">Angolo sterzo (°):</label>
+    <input type="number" id="steering" value="5" min="0" step="1" />
+  </div>
 
-# Time vector
-t = np.arange(0, t_end, dt)
-n = len(t)
+  <button onclick="simulate()">Esegui Simulazione</button>
 
-# Inputs
-delta_t = np.zeros_like(t)
-delta_t[t >= 1.0] = delta  # Step input at t = 1s
+  <canvas id="steeringChart" width="600" height="200"></canvas>
+  <canvas id="yawRateChart" width="600" height="200"></canvas>
+  <canvas id="sideslipChart" width="600" height="200"></canvas>
+  <canvas id="trajectoryChart" width="600" height="300"></canvas>
 
-# State vectors
-y = np.zeros(n)         # lateral position
-x = np.zeros(n)         # longitudinal position
-beta = np.zeros(n)      # side slip angle [rad]
-r = np.zeros(n)         # yaw rate [rad/s]
-psi = np.zeros(n)       # yaw angle [rad]
+  <script>
+    function simulate() {
+      // Parametri dinamici da input
+      const dt = parseFloat(document.getElementById("dt").value); // passo tempo [s]
+      const T = parseFloat(document.getElementById("duration").value); // durata simulazione [s]
+      const Vx_kmh = parseFloat(document.getElementById("speed").value); // velocità [km/h]
+      const steering_deg = parseFloat(document.getElementById("steering").value); // angolo sterzo [°]
 
-# Initial conditions
-beta[0] = 0
-r[0] = 0
-psi[0] = 0
+      const Vx = Vx_kmh / 3.6;  // velocità in m/s
+      const delta = steering_deg * Math.PI / 180; // angolo sterzo in rad
+      const delta_t = 1; // Input di sterzo a 1 secondo
 
-# Simulation loop
-for i in range(1, n):
-    dbeta = ((-2 * (Cf * lf - Cr * lr) / (m * v**2) - 2 * (Cf + Cr) / (m * v)) * beta[i-1] -
-             (2 * (Cf * lf**2 + Cr * lr**2) / (Iz * v**2) + 2 * (Cf * lf - Cr * lr) / (Iz * v)) * r[i-1] +
-             2 * Cf * delta_t[i] / (m * v)) * dt
+      const steps = Math.floor(T / dt);
 
-    dr = ((-2 * (Cf * lf - Cr * lr) / (Iz * v)) * beta[i-1] -
-          2 * (Cf * lf**2 + Cr * lr**2) / (Iz * v) * r[i-1] +
-          2 * Cf * lf * delta_t[i] / Iz) * dt
+      // Parametri veicolo
+      const m = 1500;       // massa [kg]
+      const Iz = 3000;      // momento inerzia z [kg m^2]
+      const a = 1.2;        // distanza CG - asse anteriore [m]
+      const b = 1.6;        // distanza CG - asse posteriore [m]
+      const Cf = 80000;     // rigidità laterale pneumatici ant [N/rad]
+      const Cr = 80000;     // rigidità laterale pneumatici post [N/rad]
 
-    beta[i] = beta[i-1] + dbeta
-    r[i] = r[i-1] + dr
-    psi[i] = psi[i-1] + r[i] * dt
+      let beta = 0, r = 0;
+      let y = 0, x = 0, psi = 0;
 
-    dx = v * np.cos(psi[i] + beta[i]) * dt
-    dy = v * np.sin(psi[i] + beta[i]) * dt
-    x[i] = x[i-1] + dx
-    y[i] = y[i-1] + dy
+      const time = [], deltaArray = [], rArray = [], betaArray = [], xArray = [], yArray = [];
 
-# Convert to degrees
-beta_deg = np.rad2deg(beta)
+      for (let i = 0; i < steps; i++) {
+        const t = i * dt;
+        const d = t >= delta_t ? delta : 0;
 
-# Plotting
-fig1, ax1 = plt.subplots()
-ax1.plot(t, np.rad2deg(delta_t), label="Steering Input [deg]")
-ax1.set_title("Steering Input")
-ax1.set_xlabel("Time [s]")
-ax1.set_ylabel("Steering Angle [deg]")
-ax1.grid(True)
-st.pyplot(fig1)
+        // Matrici del modello
+        const A11 = -(Cf + Cr)/(m*Vx);
+        const A12 = -(a*Cf - b*Cr)/(m*Vx) - Vx;
+        const A21 = -(a*Cf - b*Cr)/(Iz*Vx);
+        const A22 = -(a**2*Cf + b**2*Cr)/(Iz*Vx);
 
-fig2, ax2 = plt.subplots()
-ax2.plot(t, np.rad2deg(r), label="Yaw Rate [deg/s]")
-ax2.set_title("Yaw Rate")
-ax2.set_xlabel("Time [s]")
-ax2.set_ylabel("Yaw Rate [deg/s]")
-ax2.grid(True)
-st.pyplot(fig2)
+        const B1 = Cf / m;
+        const B2 = a * Cf / Iz;
 
-fig3, ax3 = plt.subplots()
-ax3.plot(t, beta_deg, label="Side Slip Angle [deg]")
-ax3.set_title("Side Slip Angle")
-ax3.set_xlabel("Time [s]")
-ax3.set_ylabel("Beta [deg]")
-ax3.grid(True)
-st.pyplot(fig3)
+        const dbeta = A11*beta + A12*r + B1*d;
+        const dr = A21*beta + A22*r + B2*d;
 
-fig4, ax4 = plt.subplots()
-ax4.plot(x, y, label="Trajectory")
-ax4.set_title("Vehicle Trajectory")
-ax4.set_xlabel("X [m]")
-ax4.set_ylabel("Y [m]")
-ax4.axis('equal')
-ax4.grid(True)
-st.pyplot(fig4)
+        beta += dbeta * dt;
+        r += dr * dt;
+
+        // Cinematica
+        psi += r * dt;
+        x += Vx * Math.cos(psi + beta) * dt;
+        y += Vx * Math.sin(psi + beta) * dt;
+
+        time.push(t);
+        deltaArray.push(d * 180 / Math.PI); // in gradi
+        rArray.push(r * 180 / Math.PI);     // yaw rate in °/s
+        betaArray.push(beta * 180 / Math.PI);  // beta in gradi
+        xArray.push(x);
+        yArray.push(y);
+      }
+
+      plotChart("steeringChart", "Input di Sterzo (°)", time, deltaArray);
+      plotChart("yawRateChart", "Yaw Rate (°/s)", time, rArray);
+      plotChart("sideslipChart", "Side-Slip Angle β (°)", time, betaArray);
+      plotTrajectory(xArray, yArray);
+    }
+
+    function plotChart(id, label, x, y) {
+      new Chart(document.getElementById(id), {
+        type: "line",
+        data: {
+          labels: x,
+          datasets: [{ label, data: y, borderColor: "blue", borderWidth: 2 }]
+        },
+        options: {
+          scales: {
+            x: { title: { display: true, text: "Tempo (s)" } },
+            y: { title: { display: true, text: label } }
+          }
+        }
+      });
+    }
+
+    function plotTrajectory(x, y) {
+      new Chart(document.getElementById("trajectoryChart"), {
+        type: "line",
+        data: {
+          labels: x,
+          datasets: [{
+            label: "Traiettoria (x-y)",
+            data: x.map((val, i) => ({ x: val, y: y[i] })),
+            borderColor: "green",
+            showLine: true,
+            fill: false
+          }]
+        },
+        options: {
+          scales: {
+            x: { title: { display: true, text: "x [m]" } },
+            y: { title: { display: true, text: "y [m]" } }
+          }
+        }
+      });
+    }
+  </script>
+</body>
+</html>
